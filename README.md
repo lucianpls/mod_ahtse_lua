@@ -2,7 +2,10 @@
 
 Apache httpd content generator using Lua
 
-A module using Lua to respond to a get request.  Similar to the CGI mechanism, but customized for AHTSE use.
+A module using a Lua script file to respond to a get request.  Similar to the CGI mechanism, but customized for AHTSE use.
+
+The lua script file should provide a handler function that takes one argument, equivalent to the **QUERY_STRING**, 
+and returns the content as string, the output headers as a table or nil and the http return code.
 
 ## Apache Directives
 

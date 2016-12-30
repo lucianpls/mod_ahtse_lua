@@ -82,9 +82,6 @@ static int handler(request_rec *r)
         // 200 means all OK
         if (HTTP_OK == status)
             status = OK;
-        
-        if (status != OK) // Can't set headers or content
-            throw reinterpret_cast<const char *>(NULL);
 
         int type = lua_type(L, -1);
         if (type != LUA_TTABLE || type != LUA_TNIL)

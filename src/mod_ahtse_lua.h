@@ -16,7 +16,8 @@ APLOG_USE_MODULE(ahtse_lua);
 
 struct ahtse_lua_conf {
     const char *doc_path;
-    const char *script_name;
+    void *script;
+    apr_size_t script_len;
     const char *func;
     apr_array_header_t *regexp;
 };

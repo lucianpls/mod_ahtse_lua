@@ -19,6 +19,15 @@ static bool our_request(request_rec *r) {
     return false;
 }
 
+// Some output headers are special, an apr_table_set won't cut it
+// Some need to be set specifically, with a non-transient value
+static void set_header(request_rec *r, const char *key, const char *val) {
+    if (key == ap_strcasestr(key, "Content-Type"))
+        ap_set_content_type(r, apr_pstrdup(r->pool, val));
+    else
+        apr_table_set(r->headers_out, key, val);
+}
+
 #define error_from_lua(S) static_cast<const char *>(apr_pstrcat(r->pool, S, lua_tostring(L, -1), NULL))
 
 static int handler(request_rec *r)
@@ -82,19 +91,16 @@ static int handler(request_rec *r)
             status = OK;
 
         int type = lua_type(L, -1);
-        if (type != LUA_TTABLE || type != LUA_TNIL)
+        if (type != LUA_TTABLE && type != LUA_TNIL)
             throw "Lua second return should be nil or table";
 
         // No table, no headers
         if (type == LUA_TTABLE) {
             lua_pushnil(L); // First key
             while (lua_next(L, -2)) {
-                // Key at -2, value at -1
                 if (!(lua_isstring(L, -1) && lua_isstring(L, -2)))
                     throw "Lua header table non-string key or value found";
-                const char * key = lua_tostring(L, -2);
-                const char * val = lua_tostring(L, -1);
-                apr_table_set(r->headers_out, key, val);
+                set_header(r, lua_tostring(L, -2), lua_tostring(L, -1));
                 lua_pop(L, 1); // Pop the key
             }
         }
@@ -194,7 +200,7 @@ static const command_rec cmds[] = {
     ),
 
     AP_INIT_TAKE1(
-    "ATHSE_lua_RegExp",
+    "AHTSE_lua_RegExp",
     (cmd_func)set_regexp,
     0, // Self-pass argument
     ACCESS_CONF, // availability

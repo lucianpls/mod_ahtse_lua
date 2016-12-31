@@ -2,9 +2,7 @@
 #include <apr_strings.h>
 #include <http_log.h>
 
-#include <lua.h>
-#include <lualib.h>
-#include <lauxlib.h>
+#include <lua.hpp>
 
 static bool our_request(request_rec *r) {
     if (r->method_number != M_GET) return false;

@@ -24,15 +24,18 @@
     <None Include=".gitignore">
       <Filter>Support Files</Filter>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="src\mod_ahtse_lua.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
+    <None Include="sample_script.lua">
+      <Filter>Support Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\mod_ahtse_lua.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\mod_ahtse_lua.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

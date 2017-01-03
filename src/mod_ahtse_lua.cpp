@@ -2,7 +2,14 @@
 #include <apr_strings.h>
 #include <http_log.h>
 
+// Define LUA_IS_CPP if the lua library is compiled as C++/
+#if defined(LUA_IS_CPP)
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+#else
 #include <lua.hpp>
+#endif
 
 static bool our_request(request_rec *r) {
     if (r->method_number != M_GET) return false;
@@ -65,16 +72,41 @@ static int handler(request_rec *r)
 
     int status = OK;
 
-    // Now execute the lua script and send the result, if any
+    //
+    // Execute the lua script and send the result back
+    //
+    // The function takes three parameters
+    // - the arguments for the request, or nil
+    // - A table of input headers
+    // - A table of AHTSE specific notes
+    //
     try {
-        // The function takes one parameter, the arguments for the request, or nil
         if (r->args)
             lua_pushstring(L, r->args);
         else
             lua_pushnil(L);
 
+        // Push the input headers as a table.  No duplicate keys
+        const apr_array_header_t *hi = apr_table_elts(r->headers_in);
+        lua_createtable(L, 0, hi->nelts);
+        for (int i = 0; i < hi->nelts; i++) {
+            const char *key = APR_ARRAY_IDX(hi, i, const char *);
+            const char *val = apr_table_get(r->headers_in, key);
+            lua_pushstring(L, key);
+            lua_pushstring(L, val);
+            lua_settable(L, -2); // Sets key = val
+        }
+
+        // The notes table, for now only https flag
+        lua_createtable(L, 0, 1);
+        if (apr_table_get(r->subprocess_env, "HTTPS")) {
+            lua_pushstring(L, "HTTPS");
+            lua_pushstring(L, "On");
+            lua_settable(L, -2);
+        }
+
         // returns content, headers and code
-        int err = lua_pcall(L, 1, 3, 0);
+        int err = lua_pcall(L, 3, 3, 0);
         if (LUA_OK != err)
             throw error_from_lua("Lua execution error ");
 
@@ -105,7 +137,7 @@ static int handler(request_rec *r)
             }
         }
 
-        lua_pop(L, 1);
+        lua_pop(L, 1); // The table
 
         const char *result = NULL;
         size_t size = 0;

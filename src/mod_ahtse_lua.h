@@ -14,13 +14,13 @@
 APLOG_USE_MODULE(ahtse_lua);
 #endif
 
-struct ahtse_lua_conf {
+typedef struct {
     const char *doc_path;
     void *script;
     apr_size_t script_len;
     const char *func;
     apr_array_header_t *regexp;
-};
+} ahtse_lua_conf;
 
 extern module AP_MODULE_DECLARE_DATA ahtse_lua_module;
 

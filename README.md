@@ -3,20 +3,21 @@
 Apache httpd content generator using Lua
 
 A module using a Lua script file to respond to a get request.  Similar to the CGI mechanism, somewhat customized for AHTSE use.
+The lua script file should define a handler function that takes three arguments and returns three values.
 
-The lua script file should provide a handler function that takes three arguments and returns three values
+#Use of this module may increase server vulnerability#
 
 ### Inputs
-* URL parameters as a single string, or nil if there are no parameters
-* An input header table
-* A notes table.  The *HTTPS* key is set if the apache environment is also set
+* URL parameter string, or nil if there are no parameters
+* A table of input headers
+* A table of notes.  The *HTTPS* key is set if the matching apache environment variable is also set
 
 ### Outputs
-* Content as string
-* A table of output headers, with string keys and strings or number values
-* The http return code as number
+* Content
+* A table of output headers
+* The http status code
 
-The first and second return can also be nil. Content-Type header is properly handled, others might not work as expected
+The *Content-Type* header is properly handled, others might not work as expected
 
 ## Apache Directives
 

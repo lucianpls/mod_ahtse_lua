@@ -11,6 +11,10 @@
 #include <lua.hpp>
 #endif
 
+#if !defined(LUA_OK)
+#define LUA_OK 0
+#endif
+
 static bool our_request(request_rec *r) {
     if (r->method_number != M_GET) return false;
     apr_array_header_t *regexp_table = ((ahtse_lua_conf *)
@@ -58,14 +62,16 @@ static int handler(request_rec *r)
             || LUA_OK != lua_pcall(L, 0, 0, 0))
             throw error_from_lua("Lua initialization script ");
 
-        if (LUA_TFUNCTION != lua_getglobal(L, c->func))
+	lua_getglobal(L, c->func);
+
+        if (!lua_isfunction(L,-1))
             throw "Lua function not found";
 
     }
     catch (const char *msg) {
         if (L)
             lua_close(L);
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, msg);
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
         return HTTP_INTERNAL_SERVER_ERROR;
         L = NULL;
     }
@@ -111,12 +117,10 @@ static int handler(request_rec *r)
             throw error_from_lua("Lua execution error ");
 
         // Get the return code
-        int isnum;
-        status = static_cast<int>(lua_tointegerx(L, -1, &isnum));
-        lua_pop(L, 1); // Remove the code
-
-        if (!isnum)
+        if (!lua_isnumber(L, -1))
             throw "Lua third return should be an http numeric status code";
+        status = static_cast<int>(lua_tonumber(L, -1));
+        lua_pop(L, 1); // Remove the code
 
         // 200 means all OK
         if (HTTP_OK == status)
@@ -157,7 +161,7 @@ static int handler(request_rec *r)
     }
     catch (const char *msg) {
         if (msg) { // No message means early exit
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, msg);
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
             status = HTTP_INTERNAL_SERVER_ERROR;
         }
     }
@@ -207,7 +211,7 @@ static const char *set_script(cmd_parms *cmd, ahtse_lua_conf *c, const char *scr
         return apr_pstrcat(cmd->pool, "Can't read ", script, NULL);
 
     // Get the function name too, if present, otherwise use "handler"
-    c->func = (func) ? apr_pstrcat(cmd->pool, func) : "handler";
+    c->func = (func) ? apr_pstrcat(cmd->pool, func, NULL) : "handler";
     return NULL;
 }
 

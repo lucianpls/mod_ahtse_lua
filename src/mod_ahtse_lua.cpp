@@ -41,6 +41,15 @@ static void set_header(request_rec *r, const char *key, const char *val) {
 
 #define error_from_lua(S) static_cast<const char *>(apr_pstrcat(r->pool, S, lua_tostring(L, -1), NULL))
 
+// callback for conversion to lua table.  Assumes table is on top of stack, already initialized
+int push_to_lua_table(void *Lua, const char *key, const char *val) {
+    lua_State *L = (lua_State *)Lua;
+    lua_pushstring(L, key);
+    lua_pushstring(L, val);
+    lua_settable(L, -3);
+    return 1; // Continue
+}
+
 static int handler(request_rec *r)
 {
     if (!our_request(r))
@@ -92,23 +101,17 @@ static int handler(request_rec *r)
         else
             lua_pushnil(L);
 
-        // Push the input headers as a table.  No duplicate keys
-        const apr_array_header_t *hi = apr_table_elts(r->headers_in);
-        lua_createtable(L, 0, hi->nelts);
-        for (int i = 0; i < hi->nelts; i++) {
-            const char *key = APR_ARRAY_IDX(hi, i, const char *);
-            const char *val = apr_table_get(r->headers_in, key);
-            lua_pushstring(L, key);
-            lua_pushstring(L, val);
-            lua_settable(L, -2); // Sets key = val
-        }
+        // Convert the input table from apr to lua
+        lua_createtable(L, 0, apr_table_elts(r->headers_in)->nelts);
+        apr_table_do(push_to_lua_table, L, r->headers_in, NULL);
 
-        // The notes table, for now only https flag
+        // The input notes table, for now only https flag
+        // Could pass the request notes?
         lua_createtable(L, 0, 1);
         if (apr_table_get(r->subprocess_env, "HTTPS")) {
             lua_pushstring(L, "HTTPS");
             lua_pushstring(L, "On");
-            lua_settable(L, -2);
+            lua_settable(L, -3);
         }
 
         // returns content, headers and code

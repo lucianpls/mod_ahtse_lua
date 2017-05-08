@@ -1,6 +1,7 @@
 #include "mod_ahtse_lua.h"
 #include <apr_strings.h>
 #include <http_log.h>
+#include <http_request.h>
 
 // Define LUA_IS_CPP if the lua library is compiled as C++/
 #if defined(LUA_IS_CPP)
@@ -41,9 +42,19 @@ static void set_header(request_rec *r, const char *key, const char *val) {
 
 #define error_from_lua(S) static_cast<const char *>(apr_pstrcat(r->pool, S, lua_tostring(L, -1), NULL))
 
-// callback for conversion to lua table.  Assumes table is on top of stack, already initialized
+// apr callback for pushing a table to outgoing headers, the strings are valid for the duration of the request
+int set_header(void *rec, const char *key, const char *val) {
+    request_rec *r = reinterpret_cast<request_rec *>(rec);
+    if (key == ap_strcasestr(key, "Content-Type"))
+        ap_set_content_type(r, val);
+    else
+        apr_table_setn(r->headers_out, key, val);
+    return 1; // Continue
+}
+
+// apr callback for conversion to lua table.  Assumes table is on top of stack, already initialized
 int push_to_lua_table(void *Lua, const char *key, const char *val) {
-    lua_State *L = (lua_State *)Lua;
+    lua_State *L = reinterpret_cast<lua_State *>(Lua);
     lua_pushstring(L, key);
     lua_pushstring(L, val);
     lua_settable(L, -3);
@@ -95,6 +106,7 @@ static int handler(request_rec *r)
     // - A table of input headers
     // - A table of AHTSE specific notes
     //
+
     try {
         if (r->args)
             lua_pushstring(L, r->args);
@@ -123,44 +135,73 @@ static int handler(request_rec *r)
         if (!lua_isnumber(L, -1))
             throw "Lua third return should be an http numeric status code";
         status = static_cast<int>(lua_tonumber(L, -1));
-        lua_pop(L, 1); // Remove the code
+        lua_pop(L, 1); // Remove the return code
 
         // 200 means all OK
         if (HTTP_OK == status)
             status = OK;
-
         int type = lua_type(L, -1);
-        if (type != LUA_TTABLE && type != LUA_TNIL)
-            throw "Lua second return should be nil or table";
 
-        // No table, no headers
+        apr_table_t *out_headers = NULL;
+
+        // Convert the LUA table to an apache header table
         if (type == LUA_TTABLE) {
+            out_headers = apr_table_make(r->pool, 4);
+
             lua_pushnil(L); // First key
             while (lua_next(L, -2)) {
                 if (!(lua_isstring(L, -1) && lua_isstring(L, -2)))
                     throw "Lua header table non-string key or value found";
-                set_header(r, lua_tostring(L, -2), lua_tostring(L, -1));
-                lua_pop(L, 1); // Pop the key
+
+                // This makes a copy for the request
+                apr_table_add(out_headers, lua_tostring(L, -2), lua_tostring(L, -1));
+                lua_pop(L, 1); // Pop the value
+            }
+
+            lua_pop(L, 1); // Pop the key
+        }
+        else if (type != LUA_TNIL) { // Only table and nil are accepted
+            throw "Lua second return should be table of headers or nil";
+        }
+
+        // Special case, if a redirect code is received and internal redirect is allowed
+        if (c->allow_redirect && (
+            HTTP_MOVED_PERMANENTLY == status || HTTP_MOVED_TEMPORARILY == status
+            || HTTP_PERMANENT_REDIRECT == status || HTTP_TEMPORARY_REDIRECT == status)
+            )
+        {   // If no Location is provided use the normal response path
+            const char *uri = apr_table_get(out_headers, "Location");
+            if (uri) {
+                // Cleanup lua and then issue internal redirect
+                ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Redirecting to %s", uri);
+                // Pop the content, we don't care what it is
+                lua_pop(L, 1);
+                lua_close(L);
+                ap_internal_redirect(uri, r);
+                // This request is done
+                return OK;
             }
         }
 
-        lua_pop(L, 1); // The table
-
+        // Pass the result and the headers to the requester
         const char *result = NULL;
         size_t size = 0;
 
-        // Content, could be nil
+        // Content, which could be nil
         type = lua_type(L, -1);
 
         if (type != LUA_TNIL)
             result = lua_tolstring(L, -1, &size);
 
-        lua_pop(L, 1);
+        apr_table_do(set_header, r, out_headers, NULL);
 
         if (size) { // Got this far, send the result if any
             ap_set_content_length(r, size);
             ap_rwrite(result, size, r);
         }
+
+        // Get rid of the returned content only when no longer needed
+        lua_pop(L, 1);
     }
     catch (const char *msg) {
         if (msg) { // No message means early exit
@@ -231,19 +272,27 @@ static void register_hooks(apr_pool_t *p) {
 
 static const command_rec cmds[] = {
     AP_INIT_TAKE12(
-    "AHTSE_lua_Script",
-    (cmd_func)set_script, // Callback
-    0, // Self-pass argument
-    ACCESS_CONF, // availability
-    "TWMS configuration file"
+        "AHTSE_lua_Script",
+        (cmd_func)set_script, // Callback
+        0, // Self-pass argument
+        ACCESS_CONF, // availability
+        "Lua script to execute"
     ),
 
     AP_INIT_TAKE1(
-    "AHTSE_lua_RegExp",
-    (cmd_func)set_regexp,
-    0, // Self-pass argument
-    ACCESS_CONF, // availability
-    "Regular expression for URL matching.  At least one is required."),
+        "AHTSE_lua_RegExp",
+        (cmd_func)set_regexp,
+        0, // Self-pass argument
+        ACCESS_CONF, // availability
+        "Regular expression for URL matching.  At least one is required."
+     ),
+
+     AP_INIT_FLAG(
+        "AHTSE_lua_Redirect",
+        (cmd_func)ap_set_flag_slot, (void *) APR_OFFSETOF(ahtse_lua_conf, allow_redirect),
+        ACCESS_CONF,
+        "Enable internal redirect on temporary or permanent redirect status"
+     ),
 
     { NULL }
 };

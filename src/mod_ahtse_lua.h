@@ -20,6 +20,9 @@ typedef struct {
     apr_size_t script_len;
     const char *func;
     apr_array_header_t *regexp;
+
+    // Issue an internal redirect if a redirect code is received
+    int allow_redirect;
 } ahtse_lua_conf;
 
 extern module AP_MODULE_DECLARE_DATA ahtse_lua_module;

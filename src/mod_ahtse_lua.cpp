@@ -42,7 +42,8 @@ static void set_header(request_rec *r, const char *key, const char *val) {
 
 #define error_from_lua(S) static_cast<const char *>(apr_pstrcat(r->pool, S, lua_tostring(L, -1), NULL))
 
-// apr callback for pushing a table to outgoing headers, the strings are valid for the duration of the request
+// apr callback for pushing a table to outgoing headers
+// the input strings have to be valid for the duration of the request, no copy is made
 int set_header(void *rec, const char *key, const char *val) {
     request_rec *r = reinterpret_cast<request_rec *>(rec);
     if (key == ap_strcasestr(key, "Content-Type"))
@@ -117,14 +118,12 @@ static int handler(request_rec *r)
         lua_createtable(L, 0, apr_table_elts(r->headers_in)->nelts);
         apr_table_do(push_to_lua_table, L, r->headers_in, NULL);
 
-        // The input notes table, for now only https flag
-        // Could pass the request notes?
-        lua_createtable(L, 0, 1);
-        if (apr_table_get(r->subprocess_env, "HTTPS")) {
-            lua_pushstring(L, "HTTPS");
-            lua_pushstring(L, "On");
-            lua_settable(L, -3);
-        }
+        // The input notes table
+        // The URI is passed this way, and the HTTPS flag, if set
+        lua_newtable(L);
+        push_to_lua_table(L, "URI", r->uri);
+        if (apr_table_get(r->subprocess_env, "HTTPS"))
+            push_to_lua_table(L, "HTTPS", "On");
 
         // returns content, headers and code
         int err = lua_pcall(L, 3, 3, 0);
@@ -193,7 +192,9 @@ static int handler(request_rec *r)
         if (type != LUA_TNIL)
             result = lua_tolstring(L, -1, &size);
 
-        apr_table_do(set_header, r, out_headers, NULL);
+        // Might have no headers on return
+        if (out_headers)
+            apr_table_do(set_header, r, out_headers, NULL);
 
         if (size) { // Got this far, send the result if any
             ap_set_content_length(r, size);

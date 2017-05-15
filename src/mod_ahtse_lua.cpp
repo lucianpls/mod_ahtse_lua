@@ -24,7 +24,7 @@ static bool our_request(request_rec *r) {
     if (!regexp_table) return false;
     char *url_to_match = apr_pstrcat(r->pool, r->uri, r->args ? "?" : NULL, r->args, NULL);
     for (int i = 0; i < regexp_table->nelts; i++) {
-        ap_regex_t *m = &APR_ARRAY_IDX(regexp_table, i, ap_regex_t);
+        ap_regex_t *m = APR_ARRAY_IDX(regexp_table, i, ap_regex_t *);
         if (!ap_regexec(m, url_to_match, 0, NULL, 0))
             return true;
     }
@@ -221,18 +221,13 @@ static const char *set_regexp(cmd_parms *cmd, ahtse_lua_conf *c, const char *pat
 {
     char *err_message = NULL;
     if (c->regexp == 0)
-        c->regexp = apr_array_make(cmd->pool, 2, sizeof(ap_regex_t));
-    ap_regex_t *m = (ap_regex_t *)apr_array_push(c->regexp);
-    int error = ap_regcomp(m, pattern, 0);
+        c->regexp = apr_array_make(cmd->pool, 2, sizeof(ap_regex_t *));
 
-    if (error) {
-        int msize = 2048;
-        err_message = (char *)apr_pcalloc(cmd->pool, msize);
-        ap_regerror(error, m, err_message, msize);
-        return apr_pstrcat(cmd->pool, "Bad Regular Expression ", err_message, NULL);
-    }
+    ap_regex_t **m = (ap_regex_t **)apr_array_push(c->regexp);
 
-    return NULL;
+    *m = ap_pregcomp(cmd->pool, pattern, 0);
+
+    return (NULL == *m) ? "Bad regular expression" : NULL;
 }
 
 // Sets the script and possibly the function name to be called

@@ -33,13 +33,6 @@ static bool our_request(request_rec *r) {
 
 // Some output headers are special, an apr_table_set won't cut it
 // Some need to be set specifically, with a non-transient value
-static void set_header(request_rec *r, const char *key, const char *val) {
-    if (key == ap_strcasestr(key, "Content-Type"))
-        ap_set_content_type(r, apr_pstrdup(r->pool, val));
-    else
-        apr_table_set(r->headers_out, key, val);
-}
-
 #define error_from_lua(S) static_cast<const char *>(apr_pstrcat(r->pool, S, lua_tostring(L, -1), NULL))
 
 // apr callback for pushing a table to outgoing headers

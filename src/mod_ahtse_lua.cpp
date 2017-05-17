@@ -212,7 +212,6 @@ static int handler(request_rec *r)
 // One of them has to match if the request is to be considered
 static const char *set_regexp(cmd_parms *cmd, ahtse_lua_conf *c, const char *pattern)
 {
-    char *err_message = NULL;
     if (c->regexp == 0)
         c->regexp = apr_array_make(cmd->pool, 2, sizeof(ap_regex_t *));
 

@@ -5,7 +5,7 @@ Apache httpd content generator using Lua
 A module using a Lua script file to respond to a get request.  Similar to the CGI mechanism, somewhat customized for AHTSE use.
 The lua script file should define a handler function that takes three arguments and returns three values.
 
-#Use of this module may increase server vulnerability#
+#Since it involves executing a script, the use of this module may increase server vulnerability#
 
 ### Inputs
 * URL parameter string, or nil if there are no parameters
@@ -30,3 +30,11 @@ The *Content-Type* header is properly handled, others might not work as expected
 * AHTSE_lua_Redirect On
   When the lua script returns a redirect status code and a Location header, issue an internal redirect to that location.  Default is to use the response as is.
   Recognized redirect codes are 301, 302, 307 and 308.
+
+## Lua
+
+ * sample_script.lua
+   An example server side lua script, returns the query string wrapped in JSON
+
+ * harness.lua
+   Allows for execution of a mod_ahtse_lua script directly from lua, for development and debugging

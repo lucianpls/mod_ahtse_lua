@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
+    <None Include="harness.lua" />
     <None Include="LICENSE" />
     <None Include="README.md" />
     <None Include="sample_script.lua" />

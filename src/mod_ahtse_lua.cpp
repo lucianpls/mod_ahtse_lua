@@ -16,6 +16,7 @@
 #define LUA_OK 0
 #endif
 
+// Connection note key for lua state
 #define LUA_NOTE "ahtse_lua"
 
 typedef struct {
@@ -84,6 +85,8 @@ static int handler(request_rec *r)
 
     // Let's see if the lua state is already present for this connection
     LState *luastate = (LState *)apr_table_get(r->connection->notes, LUA_NOTE);
+
+    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Connection %x state %d", (int)(r->connection), (int)luastate);
 
     if (c->persistent && luastate) {
       if (luastate->c != c) {
@@ -218,9 +221,12 @@ static int handler(request_rec *r)
         if (uri) {
           // Cleanup lua and then issue internal redirect
           ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Redirecting to %s", uri);
+
           // Pop the content, we don't care what it is
           lua_pop(L, 1);
-          lua_close(L);
+          if (!c->persistent)
+            lua_close(L);
+
           ap_internal_redirect(uri, r);
           // This request is done
           return OK;

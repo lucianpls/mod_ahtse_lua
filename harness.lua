@@ -9,11 +9,14 @@ dofile(arg[1])
 response, oheaders, code = handler(query, headers, notes)
 
 print("CODE: " .. code)
-print("Response Headers:")
-for key,value in pairs(oheaders)
-do
-  print(key, value)
+if oheaders then
+  print("Response Headers:")
+  for key,value in pairs(oheaders)
+     do print(key, value)
+  end
 end
-print()
-print("response:")
-print(response)
+if response then
+  print()
+  print("Response:")
+  print(response)
+end

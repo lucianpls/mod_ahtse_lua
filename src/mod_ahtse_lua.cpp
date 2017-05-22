@@ -133,6 +133,7 @@ static int handler(request_rec *r)
       luastate = (LState *)apr_palloc(r->connection->pool, sizeof(LState));
       luastate->c = c;
       luastate->L = L;
+      apr_table_addn(r->connection->notes, LUA_NOTE, (const char *)luastate);
       // No child cleanup action needed
       apr_pool_cleanup_register(r->connection->pool, luastate, LState_cleanup, apr_pool_cleanup_null);
     }

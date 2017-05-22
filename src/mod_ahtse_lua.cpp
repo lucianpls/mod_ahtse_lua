@@ -16,6 +16,13 @@
 #define LUA_OK 0
 #endif
 
+#define LUA_NOTE "ahtse_lua"
+
+typedef struct {
+  lua_State *L;
+  ahtse_lua_conf *c; // Which configuration the state belongs to
+} LState;
+
 static bool our_request(request_rec *r) {
     if (r->method_number != M_GET) return false;
     apr_array_header_t *regexp_table = ((ahtse_lua_conf *)
@@ -55,6 +62,16 @@ int push_to_lua_table(void *Lua, const char *key, const char *val) {
     return 1; // Continue
 }
 
+// An apr pool cleanup function for a pool owned lua state
+apr_status_t LState_cleanup(void *data) {
+  LState *luastate = (LState *)data;
+  if (luastate->L) {
+    lua_close(luastate->L);
+    luastate->L = NULL;
+  }
+  return APR_SUCCESS;
+}
+
 static int handler(request_rec *r)
 {
     if (!our_request(r))
@@ -65,29 +82,56 @@ static int handler(request_rec *r)
 
     lua_State *L = NULL;
 
-    // Initialize Lua script, push the function to be called
-    try {
-        L = luaL_newstate();
-        if (!L)
-            throw "Lua state allocation error";
-        // Some magic, this can't err
-        luaL_openlibs(L);
-        if (LUA_OK != luaL_loadbuffer(L, reinterpret_cast<const char *>(c->script), c->script_len, c->func)
-            || LUA_OK != lua_pcall(L, 0, 0, 0))
-            throw error_from_lua("Lua initialization script ");
+    // Let's see if the lua state is already present for this connection
+    LState *luastate = (LState *)apr_table_get(r->connection->notes, LUA_NOTE);
 
-	lua_getglobal(L, c->func);
+    if (c->persistent && luastate) {
+      if (luastate->c != c) {
 
-        if (!lua_isfunction(L,-1))
-            throw "Lua function not found";
+        // Clean up the old lua state
+        // This leaves the LState structure to be cleaned by the connection pool
+        // so make sure the LState cleanup function knows there is nothing to do
+        apr_pool_cleanup_run(r->connection->pool, luastate, LState_cleanup);
+        apr_table_unset(r->connection->notes, LUA_NOTE);
+        luastate = NULL;
 
+      }
+      else
+        L = luastate->L;
     }
-    catch (const char *msg) {
-        if (L)
-            lua_close(L);
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
-        return HTTP_INTERNAL_SERVER_ERROR;
-        L = NULL;
+
+    // Initialize Lua 
+    if (!L) try {
+      // Start a new lua state
+      L = luaL_newstate();
+      if (!L)
+        throw "Lua state allocation error";
+      luaL_openlibs(L);
+      if (LUA_OK != luaL_loadbuffer(L, reinterpret_cast<const char *>(c->script), c->script_len, c->func)
+        || LUA_OK != lua_pcall(L, 0, 0, 0))
+        throw error_from_lua("Lua initialization script ");
+    }
+    catch (const char *msg) { // Errors during initialization
+      if (L)
+        lua_close(L);
+
+      if (luastate) { // If there is a persistent luastate, something is seriously wrong with it
+        apr_pool_cleanup_run(r->connection->pool, luastate, LState_cleanup);
+        apr_table_unset(r->connection->notes, LUA_NOTE);
+        luastate = NULL;
+      }
+
+      ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
+      return HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    if (c->persistent && !luastate) {
+      // Initialize a LState struct, leave the note and register the pool cleanup
+      luastate = (LState *)apr_palloc(r->connection->pool, sizeof(LState));
+      luastate->c = c;
+      luastate->L = L;
+      // No child cleanup action needed
+      apr_pool_cleanup_register(r->connection->pool, luastate, LState_cleanup, apr_pool_cleanup_null);
     }
 
     int status = OK;
@@ -102,109 +146,119 @@ static int handler(request_rec *r)
     //
 
     try {
-        if (r->args)
-            lua_pushstring(L, r->args);
-        else
-            lua_pushnil(L);
 
-        // Convert the input table from apr to lua
-        lua_createtable(L, 0, apr_table_elts(r->headers_in)->nelts);
-        apr_table_do(push_to_lua_table, L, r->headers_in, NULL);
+      // We have a state here, get the handler function
+      lua_getglobal(L, c->func);
+      if (!lua_isfunction(L, -1)) {
+        status = HTTP_INTERNAL_SERVER_ERROR;
+        throw "Lua handler missing";
+      }
 
-        // The input notes table
-        // The URI is passed this way, and the HTTPS flag, if set
-        lua_newtable(L);
-        push_to_lua_table(L, "URI", r->uri);
-        if (apr_table_get(r->subprocess_env, "HTTPS"))
-            push_to_lua_table(L, "HTTPS", "On");
+      if (r->args)
+        lua_pushstring(L, r->args);
+      else
+        lua_pushnil(L);
 
-        // returns content, headers and code
-        int err = lua_pcall(L, 3, 3, 0);
-        if (LUA_OK != err)
-            throw error_from_lua("Lua execution error ");
+      // Convert the input table from apr to lua
+      lua_createtable(L, 0, apr_table_elts(r->headers_in)->nelts);
+      apr_table_do(push_to_lua_table, L, r->headers_in, NULL);
 
-        // Get the return code
-        if (!lua_isnumber(L, -1))
-            throw "Lua third return should be an http numeric status code";
-        status = static_cast<int>(lua_tonumber(L, -1));
-        lua_pop(L, 1); // Remove the return code
+      // The input notes table
+      // The URI is passed this way, and the HTTPS flag, if set
+      lua_newtable(L);
+      push_to_lua_table(L, "URI", r->uri);
+      if (apr_table_get(r->subprocess_env, "HTTPS"))
+        push_to_lua_table(L, "HTTPS", "On");
 
-        // 200 means all OK
-        if (HTTP_OK == status)
-            status = OK;
-        int type = lua_type(L, -1);
+      // returns content, headers and code
+      int err = lua_pcall(L, 3, 3, 0);
+      if (LUA_OK != err)
+        throw error_from_lua("Lua execution error ");
 
-        apr_table_t *out_headers = NULL;
+      // Get the return code
+      if (!lua_isnumber(L, -1))
+        throw "Lua third return should be an http numeric status code";
+      status = static_cast<int>(lua_tonumber(L, -1));
+      lua_pop(L, 1); // Remove the return code
 
-        // Convert the LUA table to an apache header table
-        if (type == LUA_TTABLE) {
-            out_headers = apr_table_make(r->pool, 4);
+      // 200 means all OK
+      if (HTTP_OK == status)
+        status = OK;
+      int type = lua_type(L, -1);
 
-            lua_pushnil(L); // First key
-            while (lua_next(L, -2)) {
-                if (!(lua_isstring(L, -1) && lua_isstring(L, -2)))
-                    throw "Lua header table non-string key or value found";
+      apr_table_t *out_headers = NULL;
 
-                // This makes a copy for the request
-                apr_table_add(out_headers, lua_tostring(L, -2), lua_tostring(L, -1));
-                lua_pop(L, 1); // Pop the value
-            }
+      // Convert the LUA table to an apache header table
+      if (type == LUA_TTABLE) {
+        out_headers = apr_table_make(r->pool, 4);
 
-            lua_pop(L, 1); // Pop the key
-        }
-        else if (type != LUA_TNIL) { // Only table and nil are accepted
-            throw "Lua second return should be table of headers or nil";
-        }
+        lua_pushnil(L); // First key
+        while (lua_next(L, -2)) {
+          if (!(lua_isstring(L, -1) && lua_isstring(L, -2)))
+            throw "Lua header table non-string key or value found";
 
-        // Special case, if a redirect code is received and internal redirect is allowed
-        if (c->allow_redirect && (
-            HTTP_MOVED_PERMANENTLY == status || HTTP_MOVED_TEMPORARILY == status
-            || HTTP_PERMANENT_REDIRECT == status || HTTP_TEMPORARY_REDIRECT == status)
-            )
-        {   // If no Location is provided use the normal response path
-            const char *uri = apr_table_get(out_headers, "Location");
-            if (uri) {
-                // Cleanup lua and then issue internal redirect
-                ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Redirecting to %s", uri);
-                // Pop the content, we don't care what it is
-                lua_pop(L, 1);
-                lua_close(L);
-                ap_internal_redirect(uri, r);
-                // This request is done
-                return OK;
-            }
+          // This makes a copy for the request
+          apr_table_add(out_headers, lua_tostring(L, -2), lua_tostring(L, -1));
+          lua_pop(L, 1); // Pop the value
         }
 
-        // Pass the result and the headers to the requester
-        const char *result = NULL;
-        size_t size = 0;
+        lua_pop(L, 1); // Pop the key
+      }
+      else if (type != LUA_TNIL) { // Only table and nil are accepted
+        throw "Lua second return should be table of headers or nil";
+      }
 
-        // Content, which could be nil
-        type = lua_type(L, -1);
-
-        if (type != LUA_TNIL)
-            result = lua_tolstring(L, -1, &size);
-
-        // Might have no headers on return
-        if (out_headers)
-            apr_table_do(set_header, r, out_headers, NULL);
-
-        if (size) { // Got this far, send the result if any
-            ap_set_content_length(r, size);
-            ap_rwrite(result, size, r);
+      // Special case, if a redirect code is received and internal redirect is allowed
+      if (c->allow_redirect && (
+        HTTP_MOVED_PERMANENTLY == status || HTTP_MOVED_TEMPORARILY == status
+        || HTTP_PERMANENT_REDIRECT == status || HTTP_TEMPORARY_REDIRECT == status)
+        )
+      {   // If no Location is provided use the normal response path
+        const char *uri = apr_table_get(out_headers, "Location");
+        if (uri) {
+          // Cleanup lua and then issue internal redirect
+          ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Redirecting to %s", uri);
+          // Pop the content, we don't care what it is
+          lua_pop(L, 1);
+          lua_close(L);
+          ap_internal_redirect(uri, r);
+          // This request is done
+          return OK;
         }
+      }
 
-        // Get rid of the returned content only when no longer needed
-        lua_pop(L, 1);
+      // Pass the result and the headers to the requester
+      const char *result = NULL;
+      size_t size = 0;
+
+      // Content, which could be nil
+      type = lua_type(L, -1);
+
+      if (type != LUA_TNIL)
+        result = lua_tolstring(L, -1, &size);
+
+      // Might have no headers on return
+      if (out_headers)
+        apr_table_do(set_header, r, out_headers, NULL);
+
+      if (size) { // Got this far, send the result if any
+        ap_set_content_length(r, size);
+        ap_rwrite(result, size, r);
+      }
+
+      // Get rid of the returned content only when no longer needed
+      lua_pop(L, 1);
     }
     catch (const char *msg) {
-        if (msg) { // No message means early exit
-            ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
-            status = HTTP_INTERNAL_SERVER_ERROR;
-        }
+      if (msg) { // No message means early exit
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "%s", msg);
+        status = HTTP_INTERNAL_SERVER_ERROR;
+      }
     }
 
-    lua_close(L);
+    if (!c->persistent)
+      lua_close(L);
+
     return status;
 }
 
@@ -282,7 +336,14 @@ static const command_rec cmds[] = {
         "Enable internal redirect on temporary or permanent redirect status"
      ),
 
-    { NULL }
+     AP_INIT_FLAG(
+        "AHTSE_lua_KeepAlive",
+        (cmd_func)ap_set_flag_slot, (void *)APR_OFFSETOF(ahtse_lua_conf, persistent),
+        ACCESS_CONF,
+        "Enable Lua state to be reused for requests on the same connection"
+     ),
+
+     { NULL }
 };
 
 module AP_MODULE_DECLARE_DATA ahtse_lua_module = {

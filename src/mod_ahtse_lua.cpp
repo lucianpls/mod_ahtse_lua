@@ -86,8 +86,6 @@ static int handler(request_rec *r)
     // Let's see if the lua state is already present for this connection
     LState *luastate = (LState *)apr_table_get(r->connection->notes, LUA_NOTE);
 
-    ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Connection %x p %d state %d", (int)(r->connection), c->persistent ? 1: 0,(int)luastate);
-
     if (c->persistent && luastate) {
       if (luastate->c != c) {
 

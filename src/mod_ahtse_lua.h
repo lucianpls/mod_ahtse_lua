@@ -23,6 +23,8 @@ typedef struct {
 
     // Issue an internal redirect if a redirect code is received
     int allow_redirect;
+    // Reuse lua state for the duration of the connection
+    int persistent;
 } ahtse_lua_conf;
 
 extern module AP_MODULE_DECLARE_DATA ahtse_lua_module;

@@ -2,14 +2,14 @@
 # MOD_PATH, the folder where the apache module should reside
 # For example, loot at Makefile.lcl.example
 
+include Makefile.lcl
+
 MODULE = mod_ahtse_lua
 C_SRC = $(MODULE).cpp
 FILES = $(C_SRC)
 OBJECTS = $(FILES:.cpp=.lo)
 
-DEFINES = -DLINUX -D_REENTRANT -D_GNU_SOURCE
-
-include Makefile.lcl
+DEFINES := $(DEFINES) -DLINUX -D_REENTRANT -D_GNU_SOURCE
 
 TARGET = .libs/$(MODULE).so
 

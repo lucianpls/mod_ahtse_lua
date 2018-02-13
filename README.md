@@ -31,6 +31,9 @@ The *Content-Type* header is properly handled, others might not work as expected
   When the lua script returns a redirect status code and a Location header, issue an internal redirect to that location.  Default is to use the response as is.
   Recognized redirect codes are 301, 302, 307 and 308.
 
+* AHTSE_lua_KeepAlive On
+  Preserve the initialized lua state between requests on the same input connection.  By default a new lua state is instantiated for each request.  This setting can improve performance, but should be used only when the lua state is not modified between requests.
+
 ## Lua
 
  * sample_script.lua

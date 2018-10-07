@@ -5,7 +5,7 @@ Apache httpd content generator using Lua
 A module using a Lua script file to respond to a get request.  Similar to the CGI mechanism, somewhat customized for AHTSE use.
 The lua script file should define a handler function that takes three arguments and returns three values.
 
-#Since it involves executing a script, the use of this module may increase server vulnerability#
+**Since it involves executing a script, the use of this module may increase server vulnerability**
 
 ### Inputs
 * URL parameter string, or nil if there are no parameters

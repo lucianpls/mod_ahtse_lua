@@ -21,23 +21,23 @@ The *Content-Type* header is properly handled, others might not work as expected
 
 ## Apache Directives
 
-* AHTSE_lua_RegExp _regexp_
+* AHTSE_lua_RegExp _regexp_  
   Regular expressions that have to match the request URL to activate the module.  May appear more than once.
 
-* AHTSE_lua_Script _script_ _function_
+* AHTSE_lua_Script _script_ _function_  
   The lua script to run and what function to call.  The script can be lua source or precompiled lua bytecode.  The default function name is _handler_
 
-* AHTSE_lua_Redirect On
+* AHTSE_lua_Redirect On  
   When the lua script returns a redirect status code and a Location header, issue an internal redirect to that location.  Default is to use the response as is.
   Recognized redirect codes are 301, 302, 307 and 308.
 
-* AHTSE_lua_KeepAlive On
+* AHTSE_lua_KeepAlive On  
   Preserve the initialized lua state between requests on the same input connection.  By default a new lua state is instantiated for each request.  This setting can improve performance, but should be used only when the lua state is not modified between requests.
 
 ## Lua
 
- * sample_script.lua
+ * sample_script.lua  
    An example server side lua script, returns the query string wrapped in JSON
 
- * harness.lua
+ * harness.lua  
    Allows for execution of a mod_ahtse_lua script directly from lua, for development and debugging

@@ -40,4 +40,4 @@ The *Content-Type* header is properly handled, others might not work as expected
    An example server side lua script, returns the query string wrapped in JSON
 
  * harness.lua  
-   Allows for execution of a mod_ahtse_lua script directly from lua, for development and debugging
+   Executes a Lua script as if invoked by this module, for script testing

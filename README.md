@@ -1,18 +1,18 @@
 # mod_ahtse_lua
 
-Apache httpd content generator using Lua
+Apache httpd content generator using [Lua](https://www.lua.org/)
 
 A module using a Lua script file to respond to a get request.  Similar to the CGI mechanism, somewhat customized for AHTSE use.
 The lua script file should define a handler function that takes three arguments and returns three values.
 
 **Since it involves executing a script, the use of this module may increase server vulnerability**
 
-### Inputs
+### Inputs to Lua
 * URL parameter string, or nil if there are no parameters
 * A table of input headers
 * A table of notes.  The *HTTPS* key is set if the matching apache environment variable is also set
 
-### Outputs
+### Outputs from Lua
 * Content
 * A table of output headers
 * The http status code

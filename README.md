@@ -1,4 +1,4 @@
-# mod_ahtse_lua
+# mod_ahtse_lua [AHTSE](https://github.com/lucianpls/AHTSE)
 
 Apache httpd content generator using [Lua](https://www.lua.org/)
 

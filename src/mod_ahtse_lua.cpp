@@ -249,6 +249,7 @@ static int handler(request_rec *r)
       if (size) { // Got this far, send the result if any
         ap_set_content_length(r, size);
         ap_rwrite(result, size, r);
+        ap_rflush(r);
       }
 
       // Get rid of the returned content only when no longer needed
